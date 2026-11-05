@@ -31,28 +31,24 @@ on:
       version_slug:
         description: Optional new slug for a documentation correction (release snapshots are immutable)
         type: string
-      make_default:
-        description: Make this release the default version
-        type: boolean
-        default: false
       mode:
         description: Preview for review, or explicitly publish the assembled site
         type: choice
-        options: [preview, publish]
+        options: [preview, production]
         default: preview
 
 permissions:
   contents: write
 
 concurrency:
-  group: fern-docs-website
+  group: fern-release/docs
   cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    environment: ${{ inputs.mode == 'publish' && 'docs-hosted' || 'docs-staging' }}
+    environment: ${{ inputs.mode == 'production' && 'docs-hosted' || 'docs-staging' }}
     defaults:
       run:
         shell: bash
@@ -62,14 +58,13 @@ jobs:
       SOURCE_REF: ${{ inputs.source_ref || inputs.release_tag || 'main' }}
       RELEASE_TAG: ${{ inputs.release_tag }}
       VERSION_SLUG: ${{ inputs.version_slug }}
-      MAKE_DEFAULT: ${{ inputs.make_default }}
       FERN_DOCS_URL: ${{ vars.FERN_DOCS_URL }}
       FERN_ORGANIZATION: ${{ vars.FERN_ORGANIZATION }}
     steps:
       - name: Validate inputs
         run: |
           [[ "$CHANNEL" == dev || "$CHANNEL" == release ]]
-          [[ "$MODE" == preview || "$MODE" == publish ]]
+          [[ "$MODE" == preview || "$MODE" == production ]]
           : "${FERN_DOCS_URL:?Set FERN_DOCS_URL in the selected GitHub environment.}"
           : "${FERN_ORGANIZATION:?Set FERN_ORGANIZATION in the selected GitHub environment.}"
           if [[ "$CHANNEL" == release ]]; then
@@ -78,7 +73,7 @@ jobs:
           fi
       - name: Check deployment token
         env:
-          FERN_TOKEN: ${{ inputs.mode == 'publish' && secrets.FERN_TOKEN || secrets.FERN_TOKEN_PREVIEW }}
+          FERN_TOKEN: ${{ inputs.mode == 'production' && secrets.FERN_TOKEN || secrets.FERN_TOKEN_PREVIEW }}
         run: ': "${FERN_TOKEN:?Configure the Fern token in the selected GitHub environment.}"'
       - name: Checkout automation
         uses: actions/checkout@v6
@@ -120,14 +115,14 @@ jobs:
         run: |
           git init website
           git -C website remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
-          if git -C website ls-remote --exit-code origin refs/heads/docs-website; then
-            git -C website fetch origin docs-website
-            git -C website checkout -b docs-website FETCH_HEAD
+          if git -C website ls-remote --exit-code origin refs/heads/release/docs; then
+            git -C website fetch origin release/docs
+            git -C website checkout -b release/docs FETCH_HEAD
             test -f website/fern/snapshots.yml
           else
             status=$?
             if [[ "$status" != 2 ]]; then exit "$status"; fi
-            git -C website checkout --orphan docs-website
+            git -C website checkout --orphan release/docs
           fi
       - name: Assemble candidate website
         run: |
@@ -147,7 +142,6 @@ jobs:
           fi
           args=()
           if [[ "$CHANNEL" == release ]]; then args+=(--release-tag "$RELEASE_TAG"); fi
-          if [[ "$MAKE_DEFAULT" == true ]]; then args+=(--make-default); fi
           BASE_PATH=$(node -e 'const value = process.env.FERN_DOCS_URL; const url = new URL(value.includes("://") ? value : "https://" + value); console.log(url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname)')
           node automation/fern/sync-site.mjs --source source --site website --slug "$SLUG" \
             --source-ref "$SOURCE_REF" --source-sha "$(git -C source rev-parse HEAD)" \
@@ -160,7 +154,7 @@ jobs:
           ../automation/fern/node_modules/.bin/fern docs md check
           ../automation/fern/node_modules/.bin/fern docs broken-links --strict
       - name: Save production snapshots
-        if: inputs.mode == 'publish'
+        if: inputs.mode == 'production'
         env:
           GH_TOKEN: ${{ github.token }}
         working-directory: website
@@ -171,7 +165,7 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit -m "docs: snapshot $DOCS_SLUG from $SOURCE_REF"
             git -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f' \
-              push origin HEAD:docs-website
+              push origin HEAD:release/docs
           fi
       - name: Configure deployment organization
         run: |
@@ -181,7 +175,7 @@ jobs:
       - name: Deploy assembled website
         working-directory: website
         env:
-          FERN_TOKEN: ${{ inputs.mode == 'publish' && secrets.FERN_TOKEN || secrets.FERN_TOKEN_PREVIEW }}
+          FERN_TOKEN: ${{ inputs.mode == 'production' && secrets.FERN_TOKEN || secrets.FERN_TOKEN_PREVIEW }}
         run: |
           : "${FERN_TOKEN:?Configure the Fern token in the selected GitHub environment.}"
           args=()

@@ -52,14 +52,30 @@ test('same source can be retried, but releases cannot be overwritten', async t =
   await assert.rejects(syncSite({ ...release, sourceSha: 'b'.repeat(40) }), /frozen/);
 });
 
-test('historical imports preserve the default unless explicitly promoted', async t => {
+test('newest release becomes default while older imports and dev preserve it', async t => {
+  const args = await fixture(t);
+  const config = path.join(args.site, 'fern/docs.yml');
+  for (const tag of ['v1.9.0', 'v1.10.0', 'v1.8.9']) {
+    await syncSite({ ...args, slug: tag, releaseTag: tag });
+  }
+  await syncSite({ ...args, slug: 'dev' });
+  const content = await fs.readFile(config, 'utf8');
+  assert.ok(content.indexOf('display-name: v1.10.0') < content.indexOf('display-name: v1.9.0'));
+  assert.ok(content.indexOf('display-name: v1.10.0') < content.indexOf('display-name: v1.8.9'));
+  await syncSite({ ...args, slug: 'v2.0.0', releaseTag: 'v2.0.0' });
+  assert.ok((await fs.readFile(config, 'utf8')).indexOf('display-name: v2.0.0') <
+    (await fs.readFile(config, 'utf8')).indexOf('display-name: v1.10.0'));
+  await syncSite({ ...args, slug: 'v1.8.9', releaseTag: 'v1.8.9' });
+  assert.ok((await fs.readFile(config, 'utf8')).indexOf('display-name: v2.0.0') <
+    (await fs.readFile(config, 'utf8')).indexOf('display-name: v1.8.9'));
+});
+
+test('documentation corrections for the default release become the new default', async t => {
   const args = await fixture(t);
   await syncSite({ ...args, slug: 'v2.0.0', releaseTag: 'v2.0.0' });
-  await syncSite({ ...args, slug: 'v1.0.0', releaseTag: 'v1.0.0' });
-  const config = path.join(args.site, 'fern/docs.yml');
-  assert.ok((await fs.readFile(config, 'utf8')).indexOf('v2.0.0') < (await fs.readFile(config, 'utf8')).indexOf('v1.0.0'));
-  await syncSite({ ...args, slug: 'v1.0.0', releaseTag: 'v1.0.0', makeDefault: true });
-  assert.ok((await fs.readFile(config, 'utf8')).indexOf('v1.0.0') < (await fs.readFile(config, 'utf8')).indexOf('v2.0.0'));
+  await syncSite({ ...args, slug: 'v2.0.0-docs-1', releaseTag: 'v2.0.0', sourceSha: 'b'.repeat(40) });
+  const config = await fs.readFile(path.join(args.site, 'fern/docs.yml'), 'utf8');
+  assert.ok(config.indexOf('display-name: v2.0.0-docs-1') < config.indexOf('display-name: v2.0.0\n'));
 });
 
 test('MDX parsing scopes links and snippets without changing code examples', () => {

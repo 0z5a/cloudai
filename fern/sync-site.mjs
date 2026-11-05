@@ -13,6 +13,7 @@ import remarkGfm from 'remark-gfm';
 import remarkFrontmatter from 'remark-frontmatter';
 import remarkStringify from 'remark-stringify';
 import YAML from 'yaml';
+import semver from 'semver';
 
 const markdown = unified().use(remarkParse).use(remarkMdx).use(remarkGfm)
   .use(remarkFrontmatter).use(remarkStringify);
@@ -67,7 +68,7 @@ export function snapshotMarkdown(content, slug, basePath) {
   return markdown.stringify(tree);
 }
 
-export async function syncSite({ source, site, slug, sourceRef, sourceSha, releaseTag, makeDefault = false,
+export async function syncSite({ source, site, slug, sourceRef, sourceSha, releaseTag,
   basePath = '' }) {
   if (!slug || ![...slug].every(c => 'abcdefghijklmnopqrstuvwxyz0123456789-._'.includes(c))
       || slug === '.' || slug === '..' || Object.hasOwn(Object.prototype, slug)) {
@@ -89,12 +90,6 @@ export async function syncSite({ source, site, slug, sourceRef, sourceSha, relea
     throw new Error(`Release ${slug} is frozen at ${manifest[slug].sourceSha}; use a new documentation revision slug.`);
   }
   if (Object.hasOwn(manifest, slug) && slug !== 'dev') {
-    if (makeDefault) {
-      const file = path.join(fern, 'docs.yml');
-      const config = await readYaml(file);
-      config.versions.sort((a, b) => Number(b.slug === slug) - Number(a.slug === slug));
-      await writeYaml(file, config);
-    }
     return;
   }
   const config = await readYaml(path.join(source, 'fern/docs.yml'));
@@ -143,7 +138,10 @@ export async function syncSite({ source, site, slug, sourceRef, sourceSha, relea
   delete output.tabs;
   manifest[slug] = { sourceRef, sourceSha, releaseTag: releaseTag ?? null };
   const slugs = Object.keys(manifest).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
-  const defaultSlug = makeDefault || !currentDefault || (currentDefault === 'dev' && slug !== 'dev')
+  const incomingVersion = semver.valid(releaseTag ?? '');
+  const defaultVersion = semver.valid(manifest[currentDefault]?.releaseTag ?? '');
+  const promote = incomingVersion && (!defaultVersion || semver.gte(incomingVersion, defaultVersion));
+  const defaultSlug = !currentDefault || (slug !== 'dev' && (currentDefault === 'dev' || promote))
     ? slug : currentDefault;
   output.versions = [defaultSlug, ...slugs.filter(s => s !== defaultSlug)].map(s => ({
     'display-name': s, path: `./versions/${s}.yml`, slug: s,
@@ -158,12 +156,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const { values } = parseArgs({ options: {
     source: { type: 'string' }, site: { type: 'string' }, slug: { type: 'string' },
     'source-ref': { type: 'string' }, 'source-sha': { type: 'string' }, 'release-tag': { type: 'string' },
-    'make-default': { type: 'boolean', default: false }, 'base-path': { type: 'string', default: '' },
+    'base-path': { type: 'string', default: '' },
   } });
   for (const key of ['source', 'site', 'slug', 'source-ref', 'source-sha']) {
     if (!values[key]) throw new Error(`Missing --${key}`);
   }
   await syncSite({ source: values.source, site: values.site, slug: values.slug,
     sourceRef: values['source-ref'], sourceSha: values['source-sha'], releaseTag: values['release-tag'],
-    makeDefault: values['make-default'], basePath: values['base-path'] });
+    basePath: values['base-path'] });
 }

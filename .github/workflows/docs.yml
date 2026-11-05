@@ -52,5 +52,5 @@ jobs:
     with:
       channel: dev
       source_ref: ${{ github.sha }}
-      mode: publish
+      mode: production
     secrets: inherit
