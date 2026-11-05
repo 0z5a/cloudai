@@ -6,88 +6,20 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag to stage (must contain the Fern documentation)
+        description: Existing release tag to stage (must contain Fern documentation)
         required: true
         type: string
 
 permissions:
-  contents: read
-
-concurrency:
-  group: fern-staging-${{ inputs.tag || github.event.release.tag_name }}
-  cancel-in-progress: false
+  contents: write
 
 jobs:
   staging:
     if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: docs-staging
-    defaults:
-      run:
-        shell: bash
-    env:
-      DOCS_TAG: ${{ inputs.tag || github.event.release.tag_name }}
-      FERN_DOCS_URL: ${{ vars.FERN_DOCS_URL }}
-      FERN_ORGANIZATION: ${{ vars.FERN_ORGANIZATION }}
-    steps:
-      - name: Check staging configuration
-        run: |
-          : "${DOCS_TAG:?Select an existing release tag.}"
-          : "${FERN_DOCS_URL:?Set FERN_DOCS_URL in the docs-staging environment.}"
-          : "${FERN_ORGANIZATION:?Set FERN_ORGANIZATION in the docs-staging environment.}"
-          git check-ref-format "refs/tags/$DOCS_TAG"
-      - uses: actions/checkout@v6
-        with:
-          ref: refs/tags/${{ inputs.tag || github.event.release.tag_name }}
-          persist-credentials: false
-      - name: Configure Fern staging organization
-        run: |
-          jq --arg organization "$FERN_ORGANIZATION" '.organization = $organization' \
-            fern/fern.config.json > "$RUNNER_TEMP/fern.config.json"
-          mv "$RUNNER_TEMP/fern.config.json" fern/fern.config.json
-      - uses: actions/setup-python@v6
-        with:
-          python-version-file: .python-version
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: fern/package-lock.json
-      - name: Generate and validate documentation
-        run: make -C doc check
-      - name: Test reference generation
-        run: uv run --locked --extra dev --extra docs pytest tests/doc/test_generate_reference.py
-      - name: Publish staging preview
-        env:
-          FERN_TOKEN: ${{ secrets.FERN_TOKEN_PREVIEW }}
-        run: |
-          : "${FERN_TOKEN:?Set FERN_TOKEN_PREVIEW in the docs-staging environment.}"
-          TAG_HASH=$(printf '%s' "$DOCS_TAG" | sha256sum | cut -c1-16)
-          fern/node_modules/.bin/fern generate --docs --preview --id "cloudai-release-$TAG_HASH" \
-            2>&1 | tee "$RUNNER_TEMP/fern-staging.log"
-      - name: Add review URL to run summary
-        run: |
-          python - <<'PY'
-          import os
-          from pathlib import Path
-          from urllib.parse import urlsplit
-
-          log = (Path(os.environ["RUNNER_TEMP"]) / "fern-staging.log").read_text()
-          urls = []
-          for line in log.splitlines():
-              if "Published docs to " in line:
-                  urls.extend(line.split("Published docs to ", 1)[1].split()[:1])
-          if not urls:
-              raise SystemExit("Fern did not return a review URL; inspect the publishing logs.")
-          url = urls[-1]
-          parsed = urlsplit(url)
-          if (parsed.scheme != "https" or not (parsed.hostname or "").endswith(".buildwithfern.com")
-                  or parsed.username or parsed.password):
-              raise SystemExit("Fern returned an unexpected review URL; inspect the publishing logs.")
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-              summary.write(f"Fern staging for {os.environ['DOCS_TAG']}: {url}\n")
-          PY
+    uses: ./.github/workflows/docs-site.yml
+    with:
+      channel: release
+      source_ref: refs/tags/${{ inputs.tag || github.event.release.tag_name }}
+      release_tag: ${{ inputs.tag || github.event.release.tag_name }}
+      mode: preview
+    secrets: inherit

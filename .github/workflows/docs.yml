@@ -28,6 +28,8 @@ jobs:
           cache-dependency-path: fern/package-lock.json
       - name: Generate and validate documentation
         run: make -C doc check
+      - name: Test website snapshots
+        run: node --test tests/doc/test_sync_site.mjs
       - name: Test reference generation
         run: uv run --locked --extra dev --extra docs pytest tests/doc/test_generate_reference.py
       - name: Upload Fern sources
@@ -37,5 +39,18 @@ jobs:
           path: |
             doc/**/*.mdx
             fern/docs.yml
+            fern/dev.yml
             fern/fern.config.json
             fern/generated/
+
+  publish-dev:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: docs
+    permissions:
+      contents: write
+    uses: ./.github/workflows/docs-site.yml
+    with:
+      channel: dev
+      source_ref: ${{ github.sha }}
+      mode: publish
+    secrets: inherit

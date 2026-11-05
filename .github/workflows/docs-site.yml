@@ -1,0 +1,206 @@
+name: Sync Fern Website
+
+on:
+  workflow_call:
+    inputs:
+      channel:
+        required: true
+        type: string
+      source_ref:
+        required: true
+        type: string
+      release_tag:
+        default: ''
+        type: string
+      mode:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Version to update
+        type: choice
+        options: [release, dev]
+        default: release
+      release_tag:
+        description: Existing release tag (required for releases)
+        type: string
+      source_ref:
+        description: Source ref; leave empty to use release_tag (or main for dev). Use a migrated branch for old releases.
+        type: string
+      version_slug:
+        description: Optional new slug for a documentation correction (release snapshots are immutable)
+        type: string
+      make_default:
+        description: Make this release the default version
+        type: boolean
+        default: false
+      mode:
+        description: Preview for review, or explicitly publish the assembled site
+        type: choice
+        options: [preview, publish]
+        default: preview
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fern-docs-website
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: ${{ inputs.mode == 'publish' && 'docs-hosted' || 'docs-staging' }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CHANNEL: ${{ inputs.channel }}
+      MODE: ${{ inputs.mode }}
+      SOURCE_REF: ${{ inputs.source_ref || inputs.release_tag || 'main' }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      VERSION_SLUG: ${{ inputs.version_slug }}
+      MAKE_DEFAULT: ${{ inputs.make_default }}
+      FERN_DOCS_URL: ${{ vars.FERN_DOCS_URL }}
+      FERN_ORGANIZATION: ${{ vars.FERN_ORGANIZATION }}
+    steps:
+      - name: Validate inputs
+        run: |
+          [[ "$CHANNEL" == dev || "$CHANNEL" == release ]]
+          [[ "$MODE" == preview || "$MODE" == publish ]]
+          : "${FERN_DOCS_URL:?Set FERN_DOCS_URL in the selected GitHub environment.}"
+          : "${FERN_ORGANIZATION:?Set FERN_ORGANIZATION in the selected GitHub environment.}"
+          if [[ "$CHANNEL" == release ]]; then
+            : "${RELEASE_TAG:?Select an existing release tag.}"
+            git check-ref-format "refs/tags/$RELEASE_TAG"
+          fi
+      - name: Check deployment token
+        env:
+          FERN_TOKEN: ${{ inputs.mode == 'publish' && secrets.FERN_TOKEN || secrets.FERN_TOKEN_PREVIEW }}
+        run: ': "${FERN_TOKEN:?Configure the Fern token in the selected GitHub environment.}"'
+      - name: Checkout automation
+        uses: actions/checkout@v6
+        with:
+          path: automation
+          persist-credentials: false
+      - name: Checkout source documentation
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_ref || (inputs.release_tag && format('refs/tags/{0}', inputs.release_tag)) || 'main' }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify release and migrated sources
+        run: |
+          if [[ "$CHANNEL" == release ]]; then
+            git -C source rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}"
+          fi
+          if [[ ! -f source/fern/docs.yml || ! -f source/doc/generate_reference.py ]]; then
+            echo '::error::This revision predates Fern. Migrate its docs on a branch and select that branch as source_ref.'
+            exit 1
+          fi
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: source/.python-version
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: automation/fern/package-lock.json
+      - name: Install snapshot tooling
+        run: npm --prefix automation/fern ci
+      - name: Build source documentation
+        run: make -C source/doc check
+      - name: Load published snapshots
+        run: |
+          git init website
+          git -C website remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          if git -C website ls-remote --exit-code origin refs/heads/docs-website; then
+            git -C website fetch origin docs-website
+            git -C website checkout -b docs-website FETCH_HEAD
+            test -f website/fern/snapshots.yml
+          else
+            status=$?
+            if [[ "$status" != 2 ]]; then exit "$status"; fi
+            git -C website checkout --orphan docs-website
+          fi
+      - name: Assemble candidate website
+        run: |
+          if [[ "$CHANNEL" == dev ]]; then
+            SLUG=dev
+            if [[ -f website/fern/snapshots.yml ]]; then
+              PREVIOUS_SHA=$(node -e 'const fs = require("fs"); const yaml = require("./automation/fern/node_modules/yaml"); console.log(yaml.parse(fs.readFileSync("website/fern/snapshots.yml", "utf8")).dev?.sourceSha ?? "")')
+              if [[ -n "$PREVIOUS_SHA" ]]; then
+                git -C source merge-base --is-ancestor "$PREVIOUS_SHA" HEAD || {
+                  echo '::error::Refusing to replace dev with an older or unrelated source commit.'
+                  exit 1
+                }
+              fi
+            fi
+          else
+            SLUG="${VERSION_SLUG:-$RELEASE_TAG}"
+          fi
+          args=()
+          if [[ "$CHANNEL" == release ]]; then args+=(--release-tag "$RELEASE_TAG"); fi
+          if [[ "$MAKE_DEFAULT" == true ]]; then args+=(--make-default); fi
+          BASE_PATH=$(node -e 'const value = process.env.FERN_DOCS_URL; const url = new URL(value.includes("://") ? value : "https://" + value); console.log(url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname)')
+          node automation/fern/sync-site.mjs --source source --site website --slug "$SLUG" \
+            --source-ref "$SOURCE_REF" --source-sha "$(git -C source rev-parse HEAD)" \
+            --base-path "$BASE_PATH" "${args[@]}"
+          printf 'DOCS_SLUG=%s\n' "$SLUG" >> "$GITHUB_ENV"
+      - name: Validate assembled website
+        working-directory: website
+        run: |
+          ../automation/fern/node_modules/.bin/fern check
+          ../automation/fern/node_modules/.bin/fern docs md check
+          ../automation/fern/node_modules/.bin/fern docs broken-links --strict
+      - name: Save production snapshots
+        if: inputs.mode == 'publish'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: website
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add fern
+          if ! git diff --cached --quiet; then
+            git commit -m "docs: snapshot $DOCS_SLUG from $SOURCE_REF"
+            git -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f' \
+              push origin HEAD:docs-website
+          fi
+      - name: Configure deployment organization
+        run: |
+          jq --arg organization "$FERN_ORGANIZATION" '.organization = $organization' \
+            website/fern/fern.config.json > "$RUNNER_TEMP/fern.config.json"
+          mv "$RUNNER_TEMP/fern.config.json" website/fern/fern.config.json
+      - name: Deploy assembled website
+        working-directory: website
+        env:
+          FERN_TOKEN: ${{ inputs.mode == 'publish' && secrets.FERN_TOKEN || secrets.FERN_TOKEN_PREVIEW }}
+        run: |
+          : "${FERN_TOKEN:?Configure the Fern token in the selected GitHub environment.}"
+          args=()
+          if [[ "$MODE" == preview ]]; then
+            ID=$(printf '%s' "$DOCS_SLUG" | sha256sum | cut -c1-16)
+            args+=(--preview --id "cloudai-release-$ID")
+          fi
+          ../automation/fern/node_modules/.bin/fern generate --docs --strict-broken-links "${args[@]}" \
+            2>&1 | tee "$RUNNER_TEMP/fern-deploy.log"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from urllib.parse import urlsplit
+
+          log = (Path(os.environ['RUNNER_TEMP']) / 'fern-deploy.log').read_text()
+          urls = [line.split('Published docs to ', 1)[1].split()[0]
+                  for line in log.splitlines() if 'Published docs to ' in line]
+          if not urls or urlsplit(urls[-1]).scheme != 'https':
+              raise SystemExit('Fern did not return an HTTPS deployment URL; inspect the logs.')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write(f"{os.environ['MODE']}: {os.environ['DOCS_SLUG']} — {urls[-1]}\n")
+          PY
