@@ -3,11 +3,11 @@ navigation:
     path: ../doc/index.mdx
     slug: /
   - page: Tutorial
-    path: ../doc/Tutorial.mdx
-    slug: Tutorial
+    path: ../doc/tutorial.mdx
+    slug: tutorial
   - page: User Guide
-    path: ../doc/USER_GUIDE.mdx
-    slug: USER_GUIDE
+    path: ../doc/user-guide.mdx
+    slug: user-guide
   - page: Python API
     path: ../doc/api.mdx
     slug: api
@@ -36,17 +36,17 @@ navigation:
         path: ../doc/workloads/index.mdx
         slug: workloads/index
       - page: AI Dynamo
-        path: ../doc/workloads/ai_dynamo.mdx
-        slug: workloads/ai_dynamo
+        path: ../doc/workloads/ai-dynamo.mdx
+        slug: workloads/ai-dynamo
       - page: AIConfigurator
         path: ../doc/workloads/aiconfigurator.mdx
         slug: workloads/aiconfigurator
       - page: Bash Command
-        path: ../doc/workloads/bash_cmd.mdx
-        slug: workloads/bash_cmd
+        path: ../doc/workloads/bash-cmd.mdx
+        slug: workloads/bash-cmd
       - page: Chakra Replay
-        path: ../doc/workloads/chakra_replay.mdx
-        slug: workloads/chakra_replay
+        path: ../doc/workloads/chakra-replay.mdx
+        slug: workloads/chakra-replay
       - page: DDLB
         path: ../doc/workloads/ddlb.mdx
         slug: workloads/ddlb
@@ -54,38 +54,38 @@ navigation:
         path: ../doc/workloads/deepep.mdx
         slug: workloads/deepep
       - page: DynamoMocker
-        path: ../doc/workloads/dynamo_mocker.mdx
-        slug: workloads/dynamo_mocker
+        path: ../doc/workloads/dynamo-mocker.mdx
+        slug: workloads/dynamo-mocker
       - page: fio
         path: ../doc/workloads/fio.mdx
         slug: workloads/fio
       - page: JaxToolbox workloads (DEPRECATED)
-        path: ../doc/workloads/jax_toolbox.mdx
-        slug: workloads/jax_toolbox
+        path: ../doc/workloads/jax-toolbox.mdx
+        slug: workloads/jax-toolbox
       - page: MegatronBridge
-        path: ../doc/workloads/megatron_bridge.mdx
-        slug: workloads/megatron_bridge
+        path: ../doc/workloads/megatron-bridge.mdx
+        slug: workloads/megatron-bridge
       - page: NCCL
         path: ../doc/workloads/nccl.mdx
         slug: workloads/nccl
       - page: NeMo v1.0 aka NemoLauncher (DEPRECATED)
-        path: ../doc/workloads/nemo_launcher.mdx
-        slug: workloads/nemo_launcher
+        path: ../doc/workloads/nemo-launcher.mdx
+        slug: workloads/nemo-launcher
       - page: Nemo Run
-        path: ../doc/workloads/nemo_run.mdx
-        slug: workloads/nemo_run
+        path: ../doc/workloads/nemo-run.mdx
+        slug: workloads/nemo-run
       - page: NIXL Bench
-        path: ../doc/workloads/nixl_bench.mdx
-        slug: workloads/nixl_bench
+        path: ../doc/workloads/nixl-bench.mdx
+        slug: workloads/nixl-bench
       - page: NIXL EP
-        path: ../doc/workloads/nixl_ep.mdx
-        slug: workloads/nixl_ep
+        path: ../doc/workloads/nixl-ep.mdx
+        slug: workloads/nixl-ep
       - page: NIXL KVBench
-        path: ../doc/workloads/nixl_kvbench.mdx
-        slug: workloads/nixl_kvbench
+        path: ../doc/workloads/nixl-kvbench.mdx
+        slug: workloads/nixl-kvbench
       - page: NIXL CTPerf
-        path: ../doc/workloads/nixl_perftest.mdx
-        slug: workloads/nixl_perftest
+        path: ../doc/workloads/nixl-perftest.mdx
+        slug: workloads/nixl-perftest
       - page: OSU
         path: ../doc/workloads/osu.mdx
         slug: workloads/osu
@@ -96,8 +96,8 @@ navigation:
         path: ../doc/workloads/sleep.mdx
         slug: workloads/sleep
       - page: Slurm Container
-        path: ../doc/workloads/slurm_container.mdx
-        slug: workloads/slurm_container
+        path: ../doc/workloads/slurm-container.mdx
+        slug: workloads/slurm-container
       - page: UCC
         path: ../doc/workloads/ucc.mdx
         slug: workloads/ucc
@@ -105,11 +105,11 @@ navigation:
         path: ../doc/workloads/vllm.mdx
         slug: workloads/vllm
       - page: Installation Requirements
-        path: ../doc/workloads/workloads_requirements_installation.mdx
-        slug: workloads/workloads_requirements_installation
+        path: ../doc/workloads/workloads-requirements-installation.mdx
+        slug: workloads/workloads-requirements-installation
   - page: Development
-    path: ../doc/DEV.mdx
-    slug: DEV
+    path: ../doc/development.mdx
+    slug: development
   - page: Troubleshooting
     path: ../doc/troubleshooting.mdx
     slug: troubleshooting

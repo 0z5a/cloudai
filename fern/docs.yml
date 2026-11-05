@@ -1,6 +1,8 @@
 # yaml-language-server: $schema=https://schema.buildwithfern.dev/docs-yml.json
 instances:
   - url: ${FERN_DOCS_URL}
+    custom-domain: docs.nvidia.com/cloudai
+    multi-source: true
 title: CloudAI
 settings:
   substitute-env-vars: true

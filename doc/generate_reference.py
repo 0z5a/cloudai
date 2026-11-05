@@ -14,10 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import dataclasses
 import html
 import importlib
 import inspect
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -42,86 +43,27 @@ def load_class(symbol):
 def describe_fields(cls, obj, exclude):
     """Read fields without evaluating their default factories."""
     fields = []
-    if issubclass(cls, pydantic.BaseModel):
-        for name, field in cls.model_fields.items():
-            if name in exclude:
-                continue
-            source = obj.all_members.get(name)
-            description = field.description or (source.docstring.value if source and source.docstring else "")
-            factory = field.default_factory
-            fields.append(
-                {
-                    "name": name,
-                    "annotation": inspect.formatannotation(field.annotation),
-                    "description": description,
-                    "required": field.is_required(),
-                    "default": repr(field.default) if not field.is_required() and factory is None else None,
-                    "factory": getattr(factory, "__qualname__", str(factory)) if factory else None,
-                    "constraints": [repr(item) for item in field.metadata],
-                    "alias": field.alias,
-                }
-            )
-    elif dataclasses.is_dataclass(cls):
-        for field in dataclasses.fields(cls):
-            if field.name in exclude:
-                continue
-            source = obj.all_members.get(field.name)
-            fields.append(
-                {
-                    "name": field.name,
-                    "annotation": inspect.formatannotation(field.type),
-                    "description": source.docstring.value if source and source.docstring else "",
-                    "required": field.default is dataclasses.MISSING and field.default_factory is dataclasses.MISSING,
-                    "default": repr(field.default) if field.default is not dataclasses.MISSING else None,
-                    "factory": getattr(field.default_factory, "__qualname__", str(field.default_factory))
-                    if field.default_factory is not dataclasses.MISSING
-                    else None,
-                    "constraints": [],
-                    "alias": None,
-                }
-            )
+    if not issubclass(cls, pydantic.BaseModel):
+        raise TypeError(f"{cls.__name__} is not a Pydantic model")
+    for name, field in cls.model_fields.items():
+        if name in exclude:
+            continue
+        source = obj.all_members.get(name)
+        description = field.description or (source.docstring.value if source and source.docstring else "")
+        factory = field.default_factory
+        fields.append(
+            {
+                "name": name,
+                "annotation": inspect.formatannotation(field.annotation),
+                "description": description,
+                "required": field.is_required(),
+                "default": repr(field.default) if not field.is_required() and factory is None else None,
+                "factory": getattr(factory, "__qualname__", str(factory)) if factory else None,
+                "constraints": [repr(item) for item in field.metadata],
+                "alias": field.alias,
+            }
+        )
     return fields
-
-
-def describe_members(cls, obj, exclude):
-    """Read documented public members, excluding model implementation details."""
-    members = []
-    for name, member in obj.all_members.items():
-        if member.canonical_path.startswith("pydantic."):
-            continue
-        if name in exclude or (name.startswith("_") and name != "__init__") or name.startswith("model_"):
-            continue
-        if not member.docstring:
-            continue
-        runtime = inspect.getattr_static(cls, name, None)
-        # Pydantic validators were hidden by the previous documentation configuration.
-        decorators = getattr(cls, "__pydantic_decorators__", None)
-        if decorators and (name in decorators.field_validators or name in decorators.model_validators):
-            continue
-        if isinstance(runtime, (staticmethod, classmethod)):
-            runtime = runtime.__func__
-        if isinstance(runtime, property):
-            signature = ": " + str(getattr(member, "annotation", ""))
-        elif callable(runtime):
-            signature = str(inspect.signature(runtime))
-        else:
-            signature = ": " + str(getattr(member, "annotation", ""))
-        members.append({"name": name, "signature": signature, "sections": member.docstring.parsed})
-    return members
-
-
-def describe_class(symbol, obj, exclude=(), fields_only=False):
-    """Combine Griffe's docstrings with authoritative runtime field metadata."""
-    cls = load_class(symbol)
-    fields = describe_fields(cls, obj, exclude)
-    excluded = set(exclude) | {field["name"] for field in fields}
-    members = [] if fields_only else describe_members(cls, obj, excluded)
-    return {
-        "symbol": symbol,
-        "description": obj.docstring.value if obj.docstring else "",
-        "fields": fields,
-        "members": members,
-    }
 
 
 def generate(root=ROOT):
@@ -137,25 +79,35 @@ def generate(root=ROOT):
         loader=jinja2.FileSystemLoader(root / "doc/templates"),
         undefined=jinja2.StrictUndefined,
         keep_trailing_newline=True,
+        trim_blocks=True,
+        lstrip_blocks=True,
         autoescape=False,
     )
     env.filters["mdx"] = mdx_text
+    env.filters["cell"] = lambda value: mdx_text(value).replace("|", "&#124;").replace("\n", "<br />")
+    env.filters["code"] = lambda value: str(value).replace("|", "\\|").replace("\n", " ")
     template = env.get_template("reference.mdx.jinja")
     output = root / "fern/generated"
+    shutil.rmtree(output, ignore_errors=True)
     output.mkdir(parents=True, exist_ok=True)
-    expected = set()
     for entry in config["references"]:
         symbol = entry["symbol"]
-        data = describe_class(
-            symbol, loader.modules_collection[symbol], entry.get("exclude", []), entry.get("fields_only", False)
-        )
-        path = output / f"{symbol}.mdx"
-        path.write_text(template.render(**data))
-        expected.add(path)
-    for stale in set(output.glob("*.mdx")) - expected:
-        stale.unlink()
-    print(f"Generated {len(expected)} reference snippets in {output}")
+        obj = loader.modules_collection[symbol]
+        data = {
+            "symbol": symbol,
+            "description": obj.docstring.value if obj.docstring else "",
+            "fields": describe_fields(load_class(symbol), obj, entry.get("exclude", [])),
+        }
+        filename = symbol.lower().replace("_", "-")
+        path = output / f"{filename}.mdx"
+        path.write_text(template.render(**data).rstrip() + "\n")
+    print(f"Generated {len(config['references'])} reference snippets in {output}")
 
 
 if __name__ == "__main__":
     generate()
+    untracked = subprocess.check_output(
+        ["git", "ls-files", "--others", "--exclude-standard", "fern/generated/"], cwd=ROOT, text=True
+    )
+    if untracked:
+        sys.exit("Stage newly generated references with: git add fern/generated")

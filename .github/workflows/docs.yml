@@ -1,56 +1,19 @@
-name: Validate Fern Documentation
+name: Publish Development Documentation
 
 on:
-  pull_request:
   push:
-    branches: [main]
-    tags: ['v*']
-  workflow_dispatch:
+    branches: [main, 'release/**', '!release/docs']
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  docs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version-file: .python-version
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: fern/package-lock.json
-      - name: Generate and validate documentation
-        run: make -C doc check
-      - name: Test website snapshots
-        run: node --test tests/doc/test_sync_site.mjs
-      - name: Test reference generation
-        run: uv run --locked --extra dev --extra docs pytest tests/doc/test_generate_reference.py
-      - name: Upload Fern sources
-        uses: actions/upload-artifact@v4
-        with:
-          name: cloudai-fern-docs
-          path: |
-            doc/**/*.mdx
-            fern/docs.yml
-            fern/dev.yml
-            fern/fern.config.json
-            fern/generated/
-
-  publish-dev:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: docs
-    permissions:
-      contents: write
-    uses: ./.github/workflows/docs-site.yml
+  publish:
+    if: github.ref != 'refs/heads/release/docs'
+    uses: NVIDIA/cloudai/.github/workflows/docs-site.yml@main
     with:
-      channel: dev
+      channel: ${{ github.ref == 'refs/heads/main' && 'dev' || 'release' }}
       source_ref: ${{ github.sha }}
-      mode: production
+      preview_id: ${{ github.ref_name }}
+      mode: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
     secrets: inherit

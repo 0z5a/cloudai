@@ -1,4 +1,4 @@
-name: Publish Release Documentation
+name: Review and Publish Release Documentation
 
 on:
   release:
@@ -8,12 +8,22 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  preview:
     if: '!github.event.release.prerelease'
-    uses: ./.github/workflows/docs-site.yml
+    uses: NVIDIA/cloudai/.github/workflows/docs-site.yml@main
     with:
       channel: release
       source_ref: refs/tags/${{ github.event.release.tag_name }}
+      release_tag: ${{ github.event.release.tag_name }}
+      preview_id: release-${{ github.event.release.tag_name }}
+      mode: preview
+    secrets: inherit
+  production:
+    needs: preview
+    uses: NVIDIA/cloudai/.github/workflows/docs-site.yml@main
+    with:
+      channel: release
+      source_ref: ${{ needs.preview.outputs.source_sha }}
       release_tag: ${{ github.event.release.tag_name }}
       mode: production
     secrets: inherit

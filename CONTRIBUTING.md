@@ -3,7 +3,7 @@ Welcome to the CloudAI project! This document outlines the procedures and standa
 
 ## Documentation
 
-See [Documentation](doc/README.md) for authoring, validation, and local preview instructions.
+See [Documentation](doc/readme.md) for authoring, publishing, and local preview instructions.
 
 ## Contribution Process
 ### Identifying the Feature or Fix
