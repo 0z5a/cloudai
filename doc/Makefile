@@ -2,9 +2,6 @@
 # Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Set the provisioned instance URL in the publishing environment before deploying.
-export FERN_DOCS_URL ?= cloudai-local-test.docs.buildwithfern.com/cloudai
-
 .PHONY: help reference build preview
 
 help:

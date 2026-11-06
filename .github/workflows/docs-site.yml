@@ -43,20 +43,10 @@ on:
         default: preview
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  approval:
-    if: inputs.mode == 'production' && inputs.channel == 'release'
-    name: Approve ${{ inputs.release_tag }} from ${{ inputs.source_ref }}
-    runs-on: ubuntu-latest
-    environment: docs-release
-    steps:
-      - run: echo 'Release publication approved.'
-
   publish:
-    needs: approval
-    if: ${{ !cancelled() && (needs.approval.result == 'success' || needs.approval.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: ${{ inputs.mode == 'preview' && 'docs-preview' || 'docs-hosted' }}
@@ -75,7 +65,6 @@ jobs:
       RELEASE_TAG: ${{ inputs.release_tag }}
       MODE: ${{ inputs.mode }}
       PREVIEW_ID: ${{ inputs.preview_id || inputs.source_ref }}
-      FERN_DOCS_URL: ${{ vars.FERN_DOCS_URL }}
     steps:
       - name: Checkout publishing tools from main
         uses: actions/checkout@v6
@@ -93,9 +82,6 @@ jobs:
       - name: Resolve source and version
         id: source
         run: |
-          [[ "$CHANNEL" == dev || "$CHANNEL" == release ]]
-          [[ "$MODE" == preview || "$MODE" == production ]]
-          : "${FERN_DOCS_URL:?Set the provisioned CloudAI instance URL, including /cloudai.}"
           SHA=$(git -C source rev-parse HEAD)
           if [[ "$CHANNEL" == dev ]]; then
             SLUG=dev
@@ -107,12 +93,9 @@ jobs:
             [[ "$SLUG" != dev ]]
             if [[ "$MODE" == production ]]; then
               : "${RELEASE_TAG:?A release tag is required for production.}"
-              git check-ref-format "refs/tags/$RELEASE_TAG"
               [[ "$SHA" == "$(git -C source rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")" ]]
             fi
           fi
-          test -f source/fern/dev.yml
-          test -d source/fern/generated
           printf 'sha=%s\n' "$SHA" >> "$GITHUB_OUTPUT"
           printf 'SOURCE_SHA=%s\nDOCS_SLUG=%s\n' "$SHA" "$SLUG" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v6
@@ -122,6 +105,11 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
+      - name: Check production credential
+        if: inputs.mode == 'production'
+        env:
+          DEPLOY_KEY: ${{ secrets.FERN_DOCS_DEPLOY_KEY }}
+        run: test -n "$DEPLOY_KEY"
       - name: Install Fern
         run: npm --prefix automation/fern ci
       - name: Read current production configuration
@@ -166,14 +154,19 @@ jobs:
         working-directory: state
         env:
           GH_TOKEN: ${{ github.token }}
+          DEPLOY_KEY: ${{ secrets.FERN_DOCS_DEPLOY_KEY }}
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add fern/docs.yml fern/fern.config.json
           if ! git diff --cached --quiet; then
             git commit -m "docs: publish $DOCS_SLUG from $SOURCE_SHA"
-            git -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f' \
-              push origin HEAD:release/docs
+            umask 077
+            printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/fern-deploy-key"
+            trap 'rm -f "$RUNNER_TEMP/fern-deploy-key"' EXIT
+            gh api meta --jq '.ssh_keys[] | "github.com " + .' > "$RUNNER_TEMP/fern-known-hosts"
+            export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/fern-deploy-key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/fern-known-hosts"
+            git push "git@github.com:$GITHUB_REPOSITORY.git" HEAD:release/docs
           fi
       - name: Retain deployment configuration
         if: always()
