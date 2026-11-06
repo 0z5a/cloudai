@@ -50,13 +50,9 @@ Python generators or creates generated-documentation commits on source branches.
   naming convention, with public domain `docs.nvidia.com/cloudai`. Coordinate activation of the
   public route with the Fern administrators.
 - Create `docs-preview` and `docs-hosted` environments without required reviewers.
-- Store a dedicated writable repository deploy key as `FERN_DOCS_DEPLOY_KEY` in `docs-hosted`.
-  Allow that environment on `main`, `release/*`, and release tags. The workflow uses SSH to save
-  the registry; `GITHUB_TOKEN` only needs read access.
-- Exclude `release/docs` from the `release/*` ruleset. Restrict its creation and updates to the
-  `AD_cloudai_admins` team and deploy keys; block deletion and force pushes in a separate ruleset
-  without bypass actors. GitHub exempts all deploy keys, so additional writable keys also gain access.
-  Deploy keys are repository-wide credentials, not branch-scoped.
+- Exclude exactly `release/docs` from the `release/*` ruleset. CI creates and updates it with
+  the standard `GITHUB_TOKEN` and `contents: write`; no deploy key or extra token is needed.
+  Repository writers can also push directly to this branch.
 - Merge publishing tools into `main` before using them. Every deployment reads tools and shared
   site settings from `main`; source documentation comes from the selected revision. Release branches
   need the trigger workflows, Fern configuration, and committed generated references.

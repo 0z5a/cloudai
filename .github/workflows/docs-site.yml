@@ -43,7 +43,7 @@ on:
         default: preview
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   publish:
@@ -105,11 +105,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
-      - name: Check production credential
-        if: inputs.mode == 'production'
-        env:
-          DEPLOY_KEY: ${{ secrets.FERN_DOCS_DEPLOY_KEY }}
-        run: test -n "$DEPLOY_KEY"
       - name: Install Fern
         run: npm --prefix automation/fern ci
       - name: Read current production configuration
@@ -154,19 +149,14 @@ jobs:
         working-directory: state
         env:
           GH_TOKEN: ${{ github.token }}
-          DEPLOY_KEY: ${{ secrets.FERN_DOCS_DEPLOY_KEY }}
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add fern/docs.yml fern/fern.config.json
           if ! git diff --cached --quiet; then
             git commit -m "docs: publish $DOCS_SLUG from $SOURCE_SHA"
-            umask 077
-            printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/fern-deploy-key"
-            trap 'rm -f "$RUNNER_TEMP/fern-deploy-key"' EXIT
-            gh api meta --jq '.ssh_keys[] | "github.com " + .' > "$RUNNER_TEMP/fern-known-hosts"
-            export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/fern-deploy-key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/fern-known-hosts"
-            git push "git@github.com:$GITHUB_REPOSITORY.git" HEAD:release/docs
+            git -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f' \
+              push origin HEAD:release/docs
           fi
       - name: Retain deployment configuration
         if: always()
